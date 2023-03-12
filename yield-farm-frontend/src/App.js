@@ -1,3 +1,7 @@
+// CSS File
+import './App.css';
+
+
 import React, { useState, useEffect } from 'react';
 import YieldFarmABI from './YieldFarm.json';
 import { ethers } from 'ethers';
