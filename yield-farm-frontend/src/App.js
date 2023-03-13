@@ -1,17 +1,20 @@
-// CSS File
+import React, { useState, useEffect } from 'react';
+import YieldFarmABI from './assets/contracts/YieldFarm.json';
+import { ethers } from 'ethers';
 import './App.css';
 
-
-import React, { useState, useEffect } from 'react';
-import YieldFarmABI from './YieldFarm.json';
-import { ethers } from 'ethers';
-
-const contractAddress = "0x29D2DAe17003b4D3B5C280A01193D8c8343220d0";
-
 function getContract() {
+  const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
+  console.log("contractAddress", contractAddress);
   const provider = new ethers.providers.Web3Provider(window.ethereum);
   const signer = provider.getSigner();
-  const contract = new ethers.Contract(contractAddress, YieldFarmABI.abi, signer); // Ensure you're using the ABI correctly
+
+  const contract = new ethers.Contract(contractAddress, YieldFarmABI.abi, signer);
+  
+  console.log("Contract Address:", contractAddress);
+  console.log("ABI:", YieldFarmABI.abi);
+  console.log("Ethereum Provider:", window.ethereum);
+  
   return contract;
 }
 
@@ -33,46 +36,12 @@ function App() {
       alert("MetaMask is not installed. Please consider installing it: https://metamask.io/download.html");
     }
   }
-
-  async function deposit() {
-    if (!depositAmount) return;
-    await depositToContract(depositAmount);
-    fetchPoolInfo(); // Refresh pool info after deposit
-  }
-
-  async function withdraw() {
-    await withdrawFromContract();
-    fetchPoolInfo(); // Refresh pool info after withdrawal
-  }
-
-  async function depositToContract(amount) {
-    if (!window.ethereum) return;
-    const contract = getContract();
-    try {
-      const transaction = await contract.deposit({ value: ethers.utils.parseEther(amount) });
-      await transaction.wait();
-      alert("Deposit successful!");
-      setDepositAmount(''); // Reset deposit amount
-    } catch (error) {
-      console.error("Deposit failed:", error);
-    }
-  }
-
-  async function withdrawFromContract() {
-    if (!window.ethereum) return;
-    const contract = getContract();
-    try {
-      const transaction = await contract.withdraw();
-      await transaction.wait();
-      alert("Withdraw successful!");
-    } catch (error) {
-      console.error("Withdraw failed:", error);
-    }
-  }
-
+  
+  // Fetch pool info
   async function fetchPoolInfo() {
     if (!window.ethereum) return;
     const contract = getContract();
+    console.log("contract", contract);
     try {
       const poolAmount = await contract.getPoolAmount();
       const poolRate = await contract.getPoolRate();
@@ -87,11 +56,75 @@ function App() {
     }
   }
 
-  // Fetch pool info when the component mounts
+  async function deposit() {
+    if (!depositAmount) return;
+    await depositToContract(depositAmount);
+    fetchPoolInfo(); // Refresh pool info after deposit
+  }
+
+  async function depositToContract(amount) {
+    if (!window.ethereum || !amount) return;
+    const contract = getContract();
+    try {
+        const tx = await contract.deposit({ value: ethers.utils.parseEther(amount) });
+        tx.wait().then((receipt) => {
+            console.log("Deposit transaction was successful", receipt);
+            alert("Deposit successful!");
+            // Refresh pool info after deposit
+            fetchPoolInfo();
+        }).catch((error) => {
+            console.error("Error waiting for deposit transaction", error);
+            handleTransactionError(error);
+        });
+    } catch (error) {
+        console.error("Deposit transaction failed to send", error);
+        handleTransactionError(error);
+    }
+  }
+
+  async function withdraw() {
+    await withdrawFromContract();
+    fetchPoolInfo(); // Refresh pool info after withdrawal
+  }
+
+  async function withdrawFromContract() {
+    if (!window.ethereum) return;
+    const contract = getContract();
+    try {
+        const txResponse = await contract.withdraw();
+        await txResponse.wait();
+        alert("Withdraw successful!");
+    } catch (error) {
+        // Use error handling function to interpret the error
+        handleTransactionError(error);
+    }
+  }
+
+  function handleTransactionError(error) {
+      // Check if the error is a revert and extract the reason
+      if (error.code === 'CALL_EXCEPTION') {
+          let message = "Transaction failed";
+          if (error.reason) {
+              message += `: ${error.reason}`;
+          } else if (error.error && error.error.message) {
+              // Attempt to extract error message from JSON-RPC errors
+              const match = error.error.message.match(/revert: (.*)/);
+              if (match) {
+                  message += `: ${match[1]}`;
+              }
+          }
+          alert(message);
+      } else {
+          // Handle other types of errors (e.g., network issues, user denied transaction, etc.)
+          console.error("An unexpected error occurred:", error);
+          alert("An unexpected error occurred. Please check the console for more details.");
+      }
+  }
+  
   useEffect(() => {
     fetchPoolInfo();
-  }, []);
-
+  }, [userAccount]);  
+  
   return (
     <div className="App">
       <header className="App-header">
