@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.19;
+
+import "forge-std/console.sol";
 
 contract YieldFarm {
     address public owner;
@@ -19,15 +21,13 @@ contract YieldFarm {
     event Withdrawn(address indexed user, uint256 amount);
     event PoolRateChanged(uint256 newRate);
     event PoolLockDurationChanged(uint256 newDuration);
-    
-    error PoolLocked(string message);
-    error NoFunds(string message);
 
+    error PoolLocked(uint256 unlockTime);
     constructor() {
         owner = msg.sender;
         poolAmount = 0;
         poolRate = 10; // 10% annual interest rate
-        poolLockDuration = 365 days;
+        poolLockDuration = 30 days;
     }
 
     function deposit() public payable {
@@ -40,11 +40,10 @@ contract YieldFarm {
 
     function withdraw() public {
         Deposit memory userDeposit = deposits[msg.sender];
-        if (userDeposit.amount > 0) {
-            revert NoFunds("No funds available.");
-        }
-        if (block.timestamp > userDeposit.time + poolLockDuration) {
-            revert PoolLocked("Pool is currently locked.");
+        require(userDeposit.amount > 0, "No funds available.");
+        if(block.timestamp <= userDeposit.time + poolLockDuration) {
+            // Revert with the custom error, providing the unlock time
+            revert PoolLocked(userDeposit.time + poolLockDuration);
         }
 
         uint256 depositDuration = block.timestamp - userDeposit.time;
@@ -63,7 +62,13 @@ contract YieldFarm {
 
         emit Withdrawn(msg.sender, withdrawalAmount);
     }
-
+    
+    // Function to get the user deposit amount and time
+    function getUserDeposit(address user) public view returns (uint256, uint256) {
+        Deposit memory userDeposit = deposits[user];
+        return (userDeposit.amount, userDeposit.time);
+    }
+    
     function calculateInterest(uint256 amount, uint256 depositDuration) public view returns (uint256) {
         uint256 interestPerYear = amount * poolRate / 100;
         uint256 interestForDuration = (interestPerYear * depositDuration) / 365 days;

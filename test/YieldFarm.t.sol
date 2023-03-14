@@ -35,12 +35,28 @@ contract YieldFarmTest is Test {
     }
 
     function testDeposit() public {
-        // Example test for user deposit function
         uint256 userDepositAmount = 1 ether;
+        
         vm.startPrank(user);
+
         vm.deal(user, userDepositAmount); // Provide user with ETH
+        
+
         yieldFarm.deposit{value: userDepositAmount}();
+        uint256 depositTime = block.timestamp;
+        
+        // Test getUserDeposit
+        (uint256 depositedAmount, uint256 depositedTime) = yieldFarm.getUserDeposit(user);        
+
+        assertEq(depositedAmount, userDepositAmount, "Deposited amount does not match");
+ 
+        // Test getUnlockTime immediately after deposit
+        assertEq(depositedTime, depositTime, "Deposit time does not match");
+
+        
+        // Validate the pool amount has increased by the correct amount       
         assertEq(yieldFarm.getPoolAmount(), initialAdminDeposit + userDepositAmount);
+
         vm.stopPrank();
     }
     
@@ -49,28 +65,38 @@ contract YieldFarmTest is Test {
         vm.startPrank(user);
         vm.deal(user, userDepositAmount); // Provide user with ETH for deposit
         yieldFarm.deposit{value: userDepositAmount}();
-        
+
+        console.log(yieldFarm.getPoolAmount(), " :Pool amount");
         // Validate the pool amount has increased by the correct amount
         assertEq(yieldFarm.getPoolAmount(), initialAdminDeposit + userDepositAmount);
 
-        // Simulate time passing: 365 days
-        vm.warp(block.timestamp + 365 days);
-
-
-        // Calculate the expected principle + interest amount
-        uint256 earnedInterest = userDepositAmount * yieldFarm.getPoolRate() / 100;
+        // Simulate time passing: timeTravel days
+        uint256 daysElapsed = 31 days;        
+        vm.warp(block.timestamp + daysElapsed);
         
+        // Calculate the expected principle + interest amount
+        uint256 interestPerYear = userDepositAmount * yieldFarm.getPoolRate() / 100;
+        uint256 interestForDuration = (interestPerYear * daysElapsed) / 365 days;
+        
+        console.log(interestForDuration," :Earned interest");
+                
         // Calculate the expected total payout
-        uint256 totalPayout = userDepositAmount + earnedInterest;
-
+        uint256 totalPayout = userDepositAmount + interestForDuration;
+        console.log(totalPayout, " :Expected Total payout");
+        
         // User attempts to withdraw, expecting interest on their deposit
+        console.log(address(user).balance, " User balance before withdraw");
         yieldFarm.withdraw();        
-
+        console.log(address(user).balance, " User balance after withdraw");
+        
         // Check the balance to ensure it has increased by the correct interest amount
         assertEq(address(user).balance, totalPayout);        
+        
+        console.log(yieldFarm.getPoolAmount(), " :Pool amount" );
         // Ensure the pool amount has decreased by the correct amount
-        assertEq(yieldFarm.getPoolAmount(), initialAdminDeposit - earnedInterest);
+        assertEq(yieldFarm.getPoolAmount(), initialAdminDeposit - interestForDuration);
         
         vm.stopPrank();
     }
+    
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import YieldFarmABI from './assets/contracts/YieldFarm.json';
 import { ethers } from 'ethers';
+import { format} from 'date-fns';
 import './App.css';
 
 function getContract() {
@@ -22,6 +23,8 @@ function App() {
   const [userAccount, setUserAccount] = useState(null);
   const [depositAmount, setDepositAmount] = useState('');
   const [poolInfo, setPoolInfo] = useState({ amount: 0, rate: 0, duration: 0 });
+  const [unlockDate, setUnlockDate] = useState(0);
+  const [currentDeposit, setCurrentDeposit] = useState(null);
 
   // Function to request account access
   async function connectWallet() {
@@ -78,6 +81,7 @@ function App() {
         });
     } catch (error) {
         console.error("Deposit transaction failed to send", error);
+        
         handleTransactionError(error);
     }
   }
@@ -101,29 +105,89 @@ function App() {
   }
 
   function handleTransactionError(error) {
-      // Check if the error is a revert and extract the reason
-      if (error.code === 'CALL_EXCEPTION') {
-          let message = "Transaction failed";
-          if (error.reason) {
-              message += `: ${error.reason}`;
-          } else if (error.error && error.error.message) {
-              // Attempt to extract error message from JSON-RPC errors
-              const match = error.error.message.match(/revert: (.*)/);
-              if (match) {
-                  message += `: ${match[1]}`;
-              }
-          }
-          alert(message);
-      } else {
-          // Handle other types of errors (e.g., network issues, user denied transaction, etc.)
-          console.error("An unexpected error occurred:", error);
-          alert("An unexpected error occurred. Please check the console for more details.");
+    console.error("Transaction Error:", error);
+
+    // Generic message for all failed transactions
+    let message = "Transaction failed. Please try again.";
+
+    // Specific handling based on known errors or conditions
+    if (error.code === ethers.errors.UNPREDICTABLE_GAS_LIMIT) {
+        // This may hint at a revert without a specific reason provided to ethers.js
+        // You can add context-specific messages here if you know the likely causes of failure
+        message = "Transaction failed. It's possible that the pool is still locked.";
+    }
+
+    alert(message);
+  }
+
+  async function fetchUserDeposit() {
+    if (!window.ethereum || !userAccount) return;
+    const contract = getContract();
+    try {
+      const [amount, depositTime] = await contract.getUserDeposit(userAccount);
+      const amountInEther = ethers.utils.formatEther(amount);
+      setCurrentDeposit(amountInEther);
+  
+      if (amount.eq(0)) {
+        console.log("No deposit found for user");
+        setUnlockDate(null);
+        return;
       }
+  
+      const unlockTimeInSeconds = Number(depositTime) + Number(poolInfo.duration);
+      const currentTimeInSeconds = Math.floor(Date.now() / 1000);
+      if (unlockTimeInSeconds <= currentTimeInSeconds) {
+        console.log("Funds are already available");
+        setUnlockDate(null);
+      } else {
+        const unlockDate = new Date(unlockTimeInSeconds * 1000); // Convert to milliseconds
+        const formattedUnlockDate = format(unlockDate, "PPPppp");
+        console.log(`Funds will be available on: ${formattedUnlockDate}`);
+        setUnlockDate(formattedUnlockDate);
+      }
+    } catch (error) {
+      console.error("Failed to fetch user deposit details:", error);
+    }
   }
   
+
+  // Update useEffect to fetch user's deposit details
   useEffect(() => {
+    async function fetchUserDeposit() {
+      if (!window.ethereum || !userAccount) return;
+      const contract = getContract();
+      try {
+        const [amount, depositTime] = await contract.getUserDeposit(userAccount);
+        const amountInEther = ethers.utils.formatEther(amount);
+        setCurrentDeposit(amountInEther);
+    
+        if (amount.eq(0)) {
+          console.log("No deposit found for user");
+          setUnlockDate(null);
+          return;
+        }
+    
+        const unlockTimeInSeconds = Number(depositTime) + Number(poolInfo.duration);
+        const currentTimeInSeconds = Math.floor(Date.now() / 1000);
+        if (unlockTimeInSeconds <= currentTimeInSeconds) {
+          console.log("Funds are already available");
+          setUnlockDate(null);
+        } else {
+          const unlockDate = new Date(unlockTimeInSeconds * 1000); // Convert to milliseconds
+          const formattedUnlockDate = format(unlockDate, "PPPppp");
+          console.log(`Funds will be available on: ${formattedUnlockDate}`);
+          setUnlockDate(formattedUnlockDate);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user deposit details:", error);
+      }
+    }
+    
     fetchPoolInfo();
-  }, [userAccount]);  
+    if (userAccount) {
+      fetchUserDeposit();
+    }
+  }, [userAccount]);
   
   return (
     <div className="App">
@@ -143,6 +207,12 @@ function App() {
               <p>Pool Amount: {poolInfo.amount} ETH</p>
               <p>Pool Rate: {poolInfo.rate}%</p>
               <p>Lock Duration: {poolInfo.duration} seconds</p>
+              <p>Your current deposit: {currentDeposit} ETH</p>
+              {currentDeposit > 0 && unlockDate ? (
+                  <p>Funds will be available on: {unlockDate}</p>
+              ) : (
+                  <p>No current deposit or pool is unlocked.</p>
+              )}
             </div>
           </>
         ) : (
